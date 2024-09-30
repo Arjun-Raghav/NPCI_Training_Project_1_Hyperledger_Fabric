@@ -1,0 +1,277 @@
+cd Desktop/hyperledger
+mkdir project_1
+
+Copy the ‘bin’ folder from fabric-samples
+
+Copy the ‘config’ folder from fabric-samples
+
+Copy the ‘test-network’ folder from fabric-samples
+
+Create a folder called ‘chaincode’.
+
+--------------------------
+
+
+Generating Certificates: Commands
+
+
+
+Go to test-network folder
+cd test-network
+
+Set environment variables
+export PATH=${PWD}/../bin:${PWD}:$PATH
+
+Make necessary changes in the Crypto Config files to meet your needs.
+
+
+Generate Certificates using crypto gen
+cryptogen generate --config=./organizations/cryptogen/crypto-config-org1.yaml --output="organizations"
+
+cryptogen generate --config=./organizations/cryptogen/crypto-config-org2.yaml --output="organizations"
+
+cryptogen generate --config=./organizations/cryptogen/crypto-config-orderer.yaml --output="organizations"
+Make necessary changes in the docker-compose-test-net.yaml and docker-compose-couch.yaml files to meet your needs.
+Change peer services in both docker files as per new orgs.
+
+Start the docker containers
+
+export DOCKER_SOCK=/var/run/docker.sock
+IMAGE_TAG=latest docker-compose -f compose/compose-test-net.yaml -f compose/docker/docker-compose-test-net.yaml up
+
+-----------------------------
+
+
+Generating the Genesis Block: Commands
+
+
+Set environment variables
+export PATH=${PWD}/../bin:${PWD}:$PATH
+export FABRIC_CFG_PATH=${PWD}/configtx
+export CHANNEL_NAME=supplychannel
+
+
+Make edits in the configtx.yaml file
+Orgs name changes in the Organizations section for Org1 and Org2 to Org4 and Org5
+
+Create the System Genesis  Block and Channel Genesis block
+configtxgen -profile TwoInsurerApplicationGenesis -outputBlock ./channel-artifacts/${CHANNEL_NAME}.block -channelID $CHANNEL_NAME
+
+Check the contents of the genesis block
+configtxgen -inspectBlock ./channel-artifacts/supplychannel.block > dump.json
+
+
+---------------------------------
+
+Create Channel and Join Participants - Commands
+
+cp ../config/core.yaml ./configtx/.
+
+Set Orderer Environment Variables and Create Channel
+
+export ORDERER_CA=${PWD}/organizations/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem
+export ORDERER_ADMIN_TLS_SIGN_CERT=${PWD}/organizations/ordererOrganizations/example.com/orderers/orderer.example.com/tls/server.crt
+export ORDERER_ADMIN_TLS_PRIVATE_KEY=${PWD}/organizations/ordererOrganizations/example.com/orderers/orderer.example.com/tls/server.key
+osnadmin channel join --channelID $CHANNEL_NAME --config-block ./channel-artifacts/${CHANNEL_NAME}.block -o localhost:7053 --ca-file "$ORDERER_CA" --client-cert "$ORDERER_ADMIN_TLS_SIGN_CERT" --client-key "$ORDERER_ADMIN_TLS_PRIVATE_KEY"
+
+
+
+Update envVar.sh script file inside scripts folder with new org names ie. Org4 and Org5
+
+Join the Organizational peers to the channel 
+# Org4
+source ./scripts/setOrgPeerContext.sh 1
+peer channel join -b ./channel-artifacts/${CHANNEL_NAME}.block
+# Org5
+source ./scripts/setOrgPeerContext.sh 2
+peer channel join -b ./channel-artifacts/${CHANNEL_NAME}.block
+Update Anchor peer for Org4
+source ./scripts/setOrgPeerContext.sh 1
+docker exec cli ./scripts/setAnchorPeer.sh 1 $CHANNEL_NAME
+Update Anchor peer for Org5
+source ./scripts/setOrgPeerContext.sh 2
+docker exec cli ./scripts/setAnchorPeer.sh 2 $CHANNEL_NAME
+
+
+-----------------------------
+
+
+Develop Insurance Chaincode - Commands
+
+
+
+We are going to deploy FabCar chaincode on Test Network. Till now we have created a channel and our peers have joined the channel. 
+
+    We need to write a script to configure chaincode environment variables. Create a new script file inside fabric-samples/test-network/scripts and name it 
+    setFabCarGolangContext.sh
+
+export CC_RUNTIME_LANGUAGE=golang
+export CC_SRC_PATH="../chaincode/fabcar/go/"
+export VERSION=1
+
+echo Vendoring Go dependencies ...
+pushd ../chaincode/fabcar/go
+export GO111MODULE=on go mod vendor
+popd
+echo Finished vendoring Go dependencies
+
+    Update the environment variable to configure the use of GoLang Chaincode.
+
+source ./scripts/setFabCarGolangContext.sh
+export FABRIC_CFG_PATH=$PWD/../config/
+export FABRIC_CFG_PATH=${PWD}/configtx
+export CHANNEL_NAME=supplychannel
+export PATH=${PWD}/../bin:${PWD}:$PATH
+
+    Package the chaincode: Chaincode needs to be packaged in a tar file before it can be installed on your peers. You can package a chaincode using the Fabric peer binaries, the Node Fabric SDK, or a third-party tool such as GNU tar.
+
+source ./scripts/setOrgPeerContext.sh 1
+peer lifecycle chaincode package fabcar.tar.gz --path ${CC_SRC_PATH} --lang ${CC_RUNTIME_LANGUAGE} --label fabcar_${VERSION}
+
+Check if the package is created: ‘fabcar.tar.gz’ file should be seen.
+
+    Install the Chaincode: You need to install the chaincode package on every peer that will execute and endorse transactions. You need to complete this step using your Peer Administrator, whether using the CLI or an SDK. 
+
+    A successful install command will return a chaincode package identifier, which is the package label combined with a hash of the package. This package identifier associates a chaincode package installed on your peers with a chaincode definition approved by your organization.
+
+
+        Install the chaincode on the peer of Org4
+
+peer lifecycle chaincode install fabcar.tar.gz
+
+    Install the chaincode on peer of Org5
+
+source ./scripts/setOrgPeerContext.sh 2
+peer lifecycle chaincode install fabcar.tar.gz
+
+    The Query for Installed package
+
+peer lifecycle chaincode queryinstalled 2>&1 | tee outfile
+
+    Set the PACKAGE_ID value
+
+Create a new script file inside the 
+scripts
+ folder named: 
+setPackageID.sh
+ and write below code inside it.
+
+#!/bin/bash
+
+PACK_ID=$(sed -n "/fabcar_${VERSION}/{s/^Package ID: //; s/, Label:.*$//; p;}" $1)
+export PACKAGE_ID=$PACK_ID
+echo $PACKAGE_ID
+
+Now run the script by below cmd.
+
+source ./scripts/setPackageID.sh outfile
+
+    Approval Process: The chaincode is governed by a chaincode definition. When channel members approve a chaincode definition, the approval acts as a vote by an organization on the chaincode parameters it accepts. These approved organization definitions allow channel members to agree on a chaincode before it can be used on a channel.
+
+
+        Approve the Chaincode as Org4
+
+source ./scripts/setOrgPeerContext.sh 1
+peer lifecycle chaincode approveformyorg -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com --tls $CORE_PEER_TLS_ENABLED --cafile $ORDERER_CA --channelID $CHANNEL_NAME --name fabcar --version ${VERSION} --init-required --package-id ${PACKAGE_ID} --sequence ${VERSION}
+
+    Check for committedness as Org4
+
+peer lifecycle chaincode checkcommitreadiness --channelID $CHANNEL_NAME --name fabcar --version ${VERSION} --sequence ${VERSION} --output json --init-required
+
+    Check for committedness as Org5
+
+source ./scripts/setOrgPeerContext.sh 2
+peer lifecycle chaincode checkcommitreadiness --channelID $CHANNEL_NAME --name fabcar --version ${VERSION} --sequence ${VERSION} --output json --init-required
+
+    Approve the Chaincode as Org5
+
+peer lifecycle chaincode approveformyorg -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com --tls $CORE_PEER_TLS_ENABLED --cafile $ORDERER_CA --channelID $CHANNEL_NAME --name fabcar --version ${VERSION} --init-required --package-id ${PACKAGE_ID} --sequence ${VERSION}
+
+    Check for committedness as Org5
+
+peer lifecycle chaincode checkcommitreadiness --channelID $CHANNEL_NAME --name fabcar --version ${VERSION} --sequence ${VERSION} --output json --init-required
+
+    Check for committedness as Org4
+
+source ./scripts/setOrgPeerContext.sh 1
+peer lifecycle chaincode checkcommitreadiness --channelID $CHANNEL_NAME --name fabcar --version ${VERSION} --sequence ${VERSION} --output json --init-required
+
+    Set the peer address for identifying the endorsing peers
+
+Create a new script in the scripts the folder named: setPeerConnectionParam.sh
+
+#!/bin/bash
+
+source scripts/envVar.sh
+
+parsePeerConnectionParameters $@
+
+echo ${PEER_CONN_PARMS[@]}
+
+export PEER_CONN_PARAMS=${PEER_CONN_PARMS[@]}
+
+Now run the script.
+
+source ./scripts/setPeerConnectionParam.sh 1 2
+
+    Commit the chaincode definition to Channel
+
+peer lifecycle chaincode commit -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com --tls $CORE_PEER_TLS_ENABLED --cafile $ORDERER_CA --channelID $CHANNEL_NAME --name fabcar $PEER_CONN_PARAMS --version ${VERSION} --sequence ${VERSION} --init-required
+
+    Check docker status
+
+docker ps
+
+    Query chaincode commit as Org5
+
+peer lifecycle chaincode querycommitted --channelID $CHANNEL_NAME --name fabcar
+
+    Query chaincode commit as Org4
+
+source ./scripts/setOrgPeerContext.sh 1
+peer lifecycle chaincode querycommitted --channelID $CHANNEL_NAME --name fabcar
+
+
+
+------------------------
+
+
+
+
+
+
+
+CHaincode Execution
+
+
+
+
+    This chaincode fabcar, has to be initialized before executing other transactions.
+
+source ./scripts/setPeerConnectionParam.sh 1 2
+
+source ./scripts/setOrgPeerContext.sh 1
+
+peer chaincode invoke -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com --tls $CORE_PEER_TLS_ENABLED --cafile $ORDERER_CA -C $CHANNEL_NAME -n fabcar $PEER_CONN_PARAMS --isInit -c '{"function":"initLedger","Args":[]}'
+
+    Let's create a new car
+
+source ./scripts/setOrgPeerContext.sh 1
+
+peer chaincode invoke -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile $ORDERER_CA -C $CHANNEL_NAME -n fabcar $PEER_CONN_PARAMS -c '{"function":"CreateCar","Args":["CAR11","Tata","Safari", "Red", "Ron"]}'
+
+    Query the Status of the state after init.
+
+peer chaincode query -C $CHANNEL_NAME -n fabcar -c '{"Args":["queryAllCars"]}'
+
+    Change the Status of Asset CAR11 to John:
+
+peer chaincode invoke -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile $ORDERER_CA -C $CHANNEL_NAME -n fabcar $PEER_CONN_PARAMS -c '{"function":"changeCarStatus","Args":["CAR11","John"]}'
+
+    As Org2 query to check the status as ownership of CAR11
+
+source ./scripts/setOrgPeerContext.sh 2
+
+peer chaincode query -C $CHANNEL_NAME -n fabcar -c '{"Args":["queryCar","CAR11"]}'
+
+
