@@ -1,0 +1,25 @@
+trainee1@trainee1-Latitude-5310:~/hyperledger/fabric-samples/test-network$ source ./scripts/setPeerConnectionParam.sh 1 2
+
+source ./scripts/setOrgPeerContext.sh 1
+
+peer chaincode invoke -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com --tls $CORE_PEER_TLS_ENABLED --cafile $ORDERER_CA -C $CHANNEL_NAME -n fabcar $PEER_CONN_PARAMS --isInit -c '{"function":"initLedger","Args":[]}'
+Using organization 1
+Using organization 2
+--peerAddresses localhost:7051 --tlsRootCertFiles /home/trainee1/hyperledger/fabric-samples/test-network/organizations/peerOrganizations/org4.example.com/tlsca/tlsca.org4.example.com-cert.pem --peerAddresses localhost:9051 --tlsRootCertFiles /home/trainee1/hyperledger/fabric-samples/test-network/organizations/peerOrganizations/org5.example.com/tlsca/tlsca.org5.example.com-cert.pem
+Using organization 1
+2024-09-30 13:00:32.392 IST 0001 INFO [chaincodeCmd] chaincodeInvokeOrQuery -> Chaincode invoke successful. result: status:200 
+trainee1@trainee1-Latitude-5310:~/hyperledger/fabric-samples/test-network$ source ./scripts/setOrgPeerContext.sh 1
+
+peer chaincode invoke -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile $ORDERER_CA -C $CHANNEL_NAME -n fabcar $PEER_CONN_PARAMS -c '{"function":"CreateCar","Args":["CAR11","Tata","Safari", "Red", "Ron"]}'
+Using organization 1
+2024-09-30 13:01:35.522 IST 0001 INFO [chaincodeCmd] chaincodeInvokeOrQuery -> Chaincode invoke successful. result: status:200 
+trainee1@trainee1-Latitude-5310:~/hyperledger/fabric-samples/test-network$ peer chaincode query -C $CHANNEL_NAME -n fabcar -c '{"Args":["queryAllCars"]}'
+[{"Key":"CAR0","Record":{"description":"Toyota","productID":"Prius","colour":"blue","status":"Tomoko"}},{"Key":"CAR1","Record":{"description":"Ford","productID":"Mustang","colour":"red","status":"Brad"}},{"Key":"CAR11","Record":{"description":"Tata","productID":"Safari","colour":"Red","status":"Ron"}},{"Key":"CAR2","Record":{"description":"Hyundai","productID":"Tucson","colour":"green","status":"Jin Soo"}},{"Key":"CAR3","Record":{"description":"Volkswagen","productID":"Passat","colour":"yellow","status":"Max"}},{"Key":"CAR4","Record":{"description":"Tesla","productID":"S","colour":"black","status":"Adriana"}},{"Key":"CAR5","Record":{"description":"Peugeot","productID":"205","colour":"purple","status":"Michel"}},{"Key":"CAR6","Record":{"description":"Chery","productID":"S22L","colour":"white","status":"Aarav"}},{"Key":"CAR7","Record":{"description":"Fiat","productID":"Punto","colour":"violet","status":"Pari"}},{"Key":"CAR8","Record":{"description":"Tata","productID":"Nano","colour":"indigo","status":"Valeria"}},{"Key":"CAR9","Record":{"description":"Holden","productID":"Barina","colour":"brown","status":"Shotaro"}}]
+trainee1@trainee1-Latitude-5310:~/hyperledger/fabric-samples/test-network$ peer chaincode invoke -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile $ORDERER_CA -C $CHANNEL_NAME -n fabcar $PEER_CONN_PARAMS -c '{"function":"changeCarStatus","Args":["CAR11","John"]}'
+2024-09-30 13:02:31.307 IST 0001 INFO [chaincodeCmd] chaincodeInvokeOrQuery -> Chaincode invoke successful. result: status:200 
+trainee1@trainee1-Latitude-5310:~/hyperledger/fabric-samples/test-network$ source ./scripts/setOrgPeerContext.sh 2
+
+peer chaincode query -C $CHANNEL_NAME -n fabcar -c '{"Args":["queryCar","CAR11"]}'
+Using organization 2
+{"description":"Tata","productID":"Safari","colour":"Red","status":"John"}
+trainee1@trainee1-Latitude-5310:~/hyperledger/fabric-samples/test-network$ 
